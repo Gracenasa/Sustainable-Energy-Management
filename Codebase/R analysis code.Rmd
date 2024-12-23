@@ -22,8 +22,6 @@ library(DBI)
 library(RPostgres)
 library(getPass)
 ```
-# Problem Statement
-Analyzing energy generation and consumption in a household over a year from different sources (solar and buying from national grid) to determine profitability of installing a battery for energy storage worth $7000 over buying to supplement solar generation.
 
 # Analysis
 ```{r}
