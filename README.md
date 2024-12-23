@@ -11,3 +11,15 @@ She has requested an analysis to determine the financial feasibility of a batter
   3. Financial metrics such as Net Present Value (NPV) and Internal Rate of Return (IRR) for two electricity price inflation scenarios:
       1. Government-estimated inflation at 4% annually.
       2. Naomi’s estimate, starting at 4% annually and increasing by 0.25% each year.
+
+## Methodology
+To provide a comprehensive solution to Naomi’s electricity usage challenge, I employed a data-driven approach, leveraging the following tools and techniques:
+1. Data Cleaning and Analysis:
+Used R to clean and preprocess the raw data, ensuring accuracy and consistency for subsequent analysis.
+Performed detailed exploratory analysis to uncover patterns in electricity usage and solar generation as well as battery modelling.
+Performed analysis on projects financial viability, future cost savings with inflation rates in mind.
+3. Database Management:
+Stored the cleaned data in PostgreSQL to facilitate structured querying and seamless integration with visualization tools.
+4. Interactive Visualization:
+Built a dynamic dashboard in Power BI to track electricity consumption, solar generation, and price trends over time.
+Enabled real-time updates to reflect changing consumption patterns and cost projections, helping Naomi monitor her progress.
