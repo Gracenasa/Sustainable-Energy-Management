@@ -23,3 +23,6 @@ Stored the cleaned data in PostgreSQL to facilitate structured querying and seam
 4. Interactive Visualization:
 Built a dynamic dashboard in Power BI to track electricity consumption, solar generation, and price trends over time.
 Enabled real-time updates to reflect changing consumption patterns and cost projections, helping Naomi monitor her progress.
+
+## Report and Insights
+[You can read my full report writeup on hashnode](https://economics-meets-data-analytics.hashnode.dev/cost-benefit-analysis-of-battery-storage-for-sustainable-energy-management)
