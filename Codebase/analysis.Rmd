@@ -1,0 +1,263 @@
+---
+title: "Energy Consumption Analysis"
+author: "Nasaka Watitwa"
+date: "2024-11-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Install packages
+install.packages("RPostgres")
+install.packages("getPass")
+# Load library
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+library(tidyr)
+library(DBI)
+library(RPostgres)
+library(getPass)
+```
+# Problem Statement
+Analyzing energy generation and consumption in a household over a year from different sources (solar and buying from national grid) to determine profitability of installing a battery for energy storage worth $7000 over buying to supplement solar generation.
+
+# Analysis
+```{r}
+#Fetch data
+energy_2022 <- read_excel("Junior Data Analyst _ Data.xlsx", skip = 2)
+
+#Data structure and missing values
+for (c in colnames(energy_2022)) {
+  print(paste(c, ":", typeof(energy_2022[[c]]), sum(is.na(energy_2022[[c]]))))
+}
+```
+## Detecting and removing outliers
+In order to enhance model performance and accuracy, I made use of the IQR method to detect and remove outliers.
+```{r}
+
+boxplot(energy_2022[, c("Solar electricity generation (kWh)", "Electricity usage (kWh)")], 
+        main = "Electricity generation and usage",
+        names = c(c("Solar electricity generation (kWh)", "Electricity usage (kWh)")),
+        ylab = "Values")
+
+
+is_outlier <- function(x) {
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR_value <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR_value
+  upper_bound <- Q3 + 1.5 * IQR_value
+  
+    x < lower_bound | x > upper_bound
+}
+
+
+selected_columns <- c("Solar electricity generation (kWh)", "Electricity usage (kWh)")
+clean_energy <- energy_2022 %>%
+  filter(!(
+    is_outlier(.data[[selected_columns[1]]]) |
+    is_outlier(.data[[selected_columns[2]]])
+  ))
+
+boxplot(clean_energy[, c("Solar electricity generation (kWh)", "Electricity usage (kWh)")],
+        main = "Electricity generation and usage",
+        names = c(c("Solar electricity generation (kWh)", "Electricity usage (kWh)")),
+        ylab = "Values")
+
+```
+
+## Daily trends in hours (without a battery installed)
+```{r}
+## Hourly energy consumption and generation without battery
+hourly_avg <- clean_energy %>% 
+  group_by(Hour) %>% 
+  summarise(
+    generated = pmax(mean(`Solar electricity generation (kWh)`),0),
+    consumption = pmax(mean(`Electricity usage (kWh)`),0)
+)
+
+ggplot(hourly_avg, aes(x = Hour)) +
+  geom_line(aes(y = generated, color = "Solar Electricity Generation (kWh)")) +
+  geom_line(aes(y = consumption, color = "Electricity Usage (kWh)")) +
+  labs(
+    x = "Hour of the Day",
+    y = "Energy (KWH)",
+    title = "Average Solar Electricity Generation and Electricity Usage per Hour",
+    color = "Legend"
+  ) +
+  theme_minimal()
+
+```
+
+
+```{r}
+##Hourly excess solar electricity generation and purchased electricity
+hour_avg <- hourly_avg %>% 
+  group_by(Hour) %>% 
+  summarise(
+    purchased_electricty = mean(ifelse(consumption > generated, consumption - generated, 0), na.rm = TRUE),
+    extra_generated = mean(ifelse(generated > consumption, generated - consumption, 0), na.rm = TRUE)
+  )
+
+ggplot(hour_avg, aes(x = Hour)) +
+  geom_line(aes(y = extra_generated, color = "extra_generated" )) +
+  geom_line(aes(y = purchased_electricty, color = "purchased_electricty" )) +
+  labs(
+    x = "Hour",
+    y = "Energy (KWH)",
+    title = "Extra solar electricity generation and purchased electricity",
+    color = "Legend"
+  ) +
+  theme_minimal()
+```
+
+## Stats with battery installation
+```{r}
+with_battery <- clean_energy
+# Parameters
+max_battery_capacity <- 12.5
+battery_charge <- 0  # Initial battery charge level
+
+# Initialize columns
+with_battery$Battery_Charge_Level <- 0
+with_battery$Electricity_Bought <- 0
+
+# Loop through each hour to calculate battery charge and electricity bought
+for (i in 1:nrow(with_battery)) {
+  solar_generation <- with_battery$`Solar electricity generation (kWh)`[i]
+  electricity_usage <- with_battery$`Electricity usage (kWh)`[i]
+  if (solar_generation > electricity_usage) {
+    excess_generation <- solar_generation - electricity_usage
+    charge_to_add <- min(max_battery_capacity - battery_charge, excess_generation)
+    battery_charge <- battery_charge + charge_to_add
+    with_battery$Electricity_Bought[i] <- 0  # No purchase required
+  } else {
+    shortfall <- electricity_usage - solar_generation
+    discharge_from_battery <- min(battery_charge, shortfall)
+    battery_charge <- battery_charge - discharge_from_battery
+    with_battery$Electricity_Bought[i] <- shortfall - discharge_from_battery
+  }
+  with_battery$Battery_Charge_Level[i] <- battery_charge
+}
+head(with_battery)
+
+```
+## Stats without battery installation
+```{r}
+without_battery <- clean_energy
+
+without_battery <- without_battery %>% 
+  mutate(
+    Electricity_Bought = ifelse(`Electricity usage (kWh)` > `Solar electricity generation (kWh)`, `Electricity usage (kWh)` - `Solar electricity generation (kWh)`, 0)
+  )
+```
+
+### Analysis
+## Energy savings
+```{r}
+energy_consumption_comparison <- data.frame(
+  Period = c("Electricity Purchased Before Battery", "Electricity Purchased After Battery"),
+  Total_Purchased = c(
+    sum(without_battery$Electricity_Bought, na.rm = TRUE),
+    sum(with_battery$Electricity_Bought, na.rm = TRUE)
+  )
+)
+
+energy_consumption_comparison$Percentage <- (energy_consumption_comparison$Total_Purchased / energy_consumption_comparison$Total_Purchased[1]) * 100
+
+print(energy_consumption_comparison)
+
+```
+
+## Solar Energy Utilization
+```{r}
+total_demand <- sum(clean_energy$`Electricity usage (kWh)`)
+
+solar_energy_coverage <- data.frame(
+  period = c("Solar utilised before battery", "Solar utilised after battery"),
+  Total_Utilised = c(
+    sum((without_battery$`Electricity usage (kWh)`- without_battery$Electricity_Bought)),
+    sum(with_battery$`Solar electricity generation (kWh)`, na.rm = TRUE)
+  )
+)
+
+solar_energy_coverage$Coverage_Percentage <- (solar_energy_coverage$Total_Utilised / total_demand) * 100
+
+print(solar_energy_coverage)
+
+```
+
+## Cost Analysis
+```{r}
+#Grid electricity costs
+price_per_kwh <- 22.50
+energy_consumption_comparison$Prices <- energy_consumption_comparison$Total_Purchased * price_per_kwh
+print(energy_consumption_comparison)
+
+grid_cost_comparison <- data.frame(
+  Period = c("Electricity Purchased Before Battery", "Electricity Purchased After Battery"),
+  Total_Purchased = c(
+    sum(without_battery$Electricity_Bought, na.rm = TRUE),
+    sum(with_battery$Electricity_Bought, na.rm = TRUE)
+  )
+)
+
+grid_cost_comparison <- grid_cost_comparison %>% 
+  mutate(Prices = Total_Purchased * price_per_kwh,
+         Percentage = (Prices/Prices[1])*100
+  )
+print(grid_cost_comparison)
+
+#Annual Savings 
+annual_savings <- grid_cost_comparison$Prices[1] - grid_cost_comparison$Prices[2]
+
+```
+
+
+##Projecting 20 years ahead
+```{r}
+# Inputs
+base_savings <- 36257.26
+years <- 1:20
+discount_rate <- 0.04
+
+# Scenario 1: Fixed 4% increase
+scenario1_savings <- base_savings * (1 + 0.04)^(years - 1)
+
+# Scenario 2: Increasing growth rate (4% + 0.25% per year)
+scenario2_growth_rates <- 0.04 + 0.0025 * (years - 1)
+scenario2_savings <- base_savings * cumprod(1 + scenario2_growth_rates)
+
+# NPV Calculation
+scenario1_npv <- sum(scenario1_savings / (1 + discount_rate)^years)
+scenario2_npv <- sum(scenario2_savings / (1 + discount_rate)^years)
+
+# Results
+cat("NPV for Scenario 1:", "Ksh", scenario1_npv, "\n")
+cat("NPV for Scenario 2:", "Ksh", scenario2_npv, "\n")
+
+cat("Svaing for Scenario 1:", "Ksh", sum(scenario1_savings), "\n")
+cat("Svaing for Scenario 2:", "Ksh", sum(scenario2_savings), "\n")
+```
+## Exporting to DB
+```{r}
+#Database Connection
+con <- dbConnect(RPostgres::Postgres(), dbname = "Electricity", user = "postgres", password = getPass::getPass("Database password"))
+
+dbListTables(con)
+dbWriteTable(con, "original_data", as.data.frame(energy_2022), overwrite = TRUE, row.names = FALSE)
+dbWriteTable(con, "cleaned_data", as.data.frame(energy_cleaned), overwrite = TRUE, row.names = FALSE)
+dbWriteTable(con, "with_battery", as.data.frame(with_battery), overwrite = TRUE, row.names = FALSE)
+dbWriteTable(con, "without_battery", as.data.frame(without_battery), overwrite = TRUE, row.names = FALSE)
+
+
+```
+
+
+
+
+
